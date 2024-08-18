@@ -97,15 +97,18 @@ const AdminDashboard = () => {
   // 従業員の追加処理
   const handleAddEmployee = async () => {
     try {
+      // Firebase Authentication でユーザーを作成
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const uid = userCredential.user.uid;
 
+      // Firestore に従業員情報を追加
       await addDoc(collection(db, 'employees'), {
         uid,
         name,
         email,
         role,
         hourlyRate: parseFloat(hourlyRate), // 時給を保存
+        password,  
         createdAt: serverTimestamp()  // Firebaseサーバーのタイムスタンプを使う
       });
 
@@ -122,6 +125,12 @@ const AdminDashboard = () => {
   const handleUpdateHourlyRate = async (id, newRate) => {
     try {
       await updateDoc(doc(db, 'employees', id), { hourlyRate: parseFloat(newRate) });
+      
+      // 時給を更新したら、全体の給料も再計算
+      const updatedEmployees = employees.map(emp =>
+        emp.id === id ? { ...emp, hourlyRate: parseFloat(newRate) } : emp
+      );
+      setEmployees(updatedEmployees);
     } catch (error) {
       console.error('Error updating hourly rate:', error);
     }
@@ -145,6 +154,22 @@ const AdminDashboard = () => {
       console.error('Error logging out:', error);
     }
   };
+
+  // 労働時間と給料の再計算（従業員データが変更されたとき）
+  useEffect(() => {
+    const recalculateSalaries = () => {
+      const updatedSalaries = {};
+      employees.forEach(employee => {
+        const employeeId = employee.id;
+        const rate = employee.hourlyRate || 0;
+        const workedHours = (totalHours[employeeId] || 0) / 3600000;  // ミリ秒を時間に変換
+        updatedSalaries[employeeId] = workedHours * rate;  // 給料を計算
+      });
+      setTotalSalaries(updatedSalaries);
+    };
+
+    recalculateSalaries();
+  }, [employees, totalHours]);
 
   return (
     <Box sx={{ padding: 4 }}>
@@ -249,6 +274,8 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+
+
 
 
 
