@@ -1,29 +1,58 @@
-import { collection, addDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
+import { db } from '../firebase';
+import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
-export const clockIn = async (employeeId) => {
-  await addDoc(collection(db, 'attendance'), {
-    employeeId,
-    type: 'clockIn',
-    timestamp: Timestamp.now()
-  });
+// 出勤記録を追加
+export const clockIn = async (uid) => {
+  try {
+    await addDoc(collection(db, 'attendance'), {
+      uid,
+      timestamp: new Date().toISOString(),
+      type: 'clockIn'
+    });
+  } catch (error) {
+    console.error('Error clocking in: ', error);
+  }
 };
 
-export const clockOut = async (employeeId) => {
-  await addDoc(collection(db, 'attendance'), {
-    employeeId,
-    type: 'clockOut',
-    timestamp: Timestamp.now()
-  });
+// 退勤記録を追加
+export const clockOut = async (uid) => {
+  try {
+    await addDoc(collection(db, 'attendance'), {
+      uid,
+      timestamp: new Date().toISOString(),
+      type: 'clockOut'
+    });
+  } catch (error) {
+    console.error('Error clocking out: ', error);
+  }
 };
 
-export const getAttendanceByEmployee = async (employeeId) => {
-  const q = query(collection(db, 'attendance'), where('employeeId', '==', employeeId));
-  const querySnapshot = await getDocs(q);
-  const attendances = [];
-  querySnapshot.forEach((doc) => {
-    attendances.push(doc.data());
-  });
-  return attendances;
+// 日次の出退勤記録を取得
+export const getAttendanceByDate = async (uid, date) => {
+  try {
+    const q = query(
+      collection(db, 'attendance'),
+      where('uid', '==', uid),
+      where('timestamp', '>=', date + 'T00:00:00Z'),
+      where('timestamp', '<=', date + 'T23:59:59Z')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => doc.data());
+  } catch (error) {
+    console.error('Error getting attendance by date: ', error);
+    return [];
+  }
 };
+
+
+
+
+
+
+
+
+
+
+
+
 

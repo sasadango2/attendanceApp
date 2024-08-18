@@ -1,17 +1,30 @@
-// src/services/authService.js
-import { auth } from '../firebaseConfig';
+import { auth, db } from '../firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
-const register = (email, password) => {
-    return createUserWithEmailAndPassword(auth, email, password);
+export const registerUser = async (email, password, role) => {
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const user = userCredential.user;
+  
+  await setDoc(doc(db, 'users', user.uid), {
+    email,
+    role
+  });
+
+  return user;
 };
 
-const login = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
+export const loginUser = async (email, password) => {
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  return userCredential.user;
 };
 
-const logout = () => {
-    return signOut(auth);
+export const logoutUser = async () => {
+  await signOut(auth);
 };
 
-export { register, login, logout };
+export const getUserRole = async (uid) => {
+  const userDoc = await getDoc(doc(db, 'users', uid));
+  return userDoc.exists() ? userDoc.data().role : null;
+};
+

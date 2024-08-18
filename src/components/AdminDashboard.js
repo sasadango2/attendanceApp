@@ -1,84 +1,271 @@
 import React, { useState, useEffect } from 'react';
-import { addEmployee, deleteEmployee, getEmployees } from '../services/employeeService';
-import { getAttendanceByEmployee } from '../services/attendanceService';
+import { db, auth, createUserWithEmailAndPassword, signOut } from '../firebase';
+import { collection, addDoc, deleteDoc, doc, getDocs, updateDoc, query, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { useNavigate } from 'react-router-dom';
+
+// MUI components
+import { Box, Button, TextField, Typography, List, ListItem, IconButton, MenuItem, Select, InputLabel, FormControl } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import LogoutIcon from '@mui/icons-material/Logout';
 
 const AdminDashboard = () => {
+  const [user] = useAuthState(auth);
+  const [employees, setEmployees] = useState([]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [totalHours, setTotalHours] = useState(0);
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('employee');
+  const [hourlyRate, setHourlyRate] = useState('');
+  const [totalHours, setTotalHours] = useState({});
+  const [totalSalaries, setTotalSalaries] = useState({});
+  const navigate = useNavigate();
 
+  // 従業員情報を取得
   useEffect(() => {
     const fetchEmployees = async () => {
-      const employeeList = await getEmployees();
-      setEmployees(employeeList);
+      const q = query(collection(db, 'employees'));
+      const querySnapshot = await getDocs(q);
+      const employeesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEmployees(employeesData);
     };
+
     fetchEmployees();
   }, []);
 
+  // 勤怠情報を取得し、労働時間と給料を計算
+  useEffect(() => {
+    const fetchTotalHours = () => {
+      const unsubscribe = onSnapshot(collection(db, 'attendance'), (snapshot) => {
+        const hours = {};
+        const salaries = {};
+        const clockIns = {};
+
+        snapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const { uid, timestamp, type } = data;
+          const employee = employees.find(emp => emp.uid === uid);
+
+          if (employee) {
+            const employeeId = employee.id;
+            if (!hours[employeeId]) hours[employeeId] = 0;
+
+            let timeInMillis = null;
+
+            // タイムスタンプが正しいか確認してから処理を続ける
+            if (timestamp && timestamp instanceof Timestamp) {
+              timeInMillis = timestamp.toMillis(); // Timestamp型をミリ秒に変換
+            } else if (typeof timestamp === 'string') {
+              const date = new Date(timestamp);
+              if (!isNaN(date.getTime())) {
+                timeInMillis = date.getTime(); // 文字列をミリ秒に変換
+              } else {
+                console.error(`Invalid date string for doc ${doc.id}: `, timestamp);
+              }
+            } else {
+              console.error(`Missing or invalid timestamp for doc ${doc.id}: `, timestamp);
+            }
+
+            if (timeInMillis !== null) {
+              if (type === 'clockIn') {
+                clockIns[employeeId] = timeInMillis;
+              } else if (type === 'clockOut' && clockIns[employeeId]) {
+                hours[employeeId] += (timeInMillis - clockIns[employeeId]);
+                clockIns[employeeId] = null;  // リセット
+              }
+            }
+          }
+        });
+
+        employees.forEach(employee => {
+          const employeeId = employee.id;
+          const rate = employee.hourlyRate || 0;  // 時給がない場合は0
+          const workedHours = (hours[employeeId] || 0) / 3600000;  // ミリ秒を時間に変換
+          salaries[employeeId] = workedHours * rate;  // 給料を計算
+        });
+
+        setTotalHours(hours);
+        setTotalSalaries(salaries);
+      });
+
+      return () => unsubscribe();
+    };
+
+    fetchTotalHours();
+  }, [employees]);
+
+  // 従業員の追加処理
   const handleAddEmployee = async () => {
-    if (name && email) {
-      await addEmployee({ name, email });
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      await addDoc(collection(db, 'employees'), {
+        uid,
+        name,
+        email,
+        role,
+        hourlyRate: parseFloat(hourlyRate), // 時給を保存
+        createdAt: serverTimestamp()  // Firebaseサーバーのタイムスタンプを使う
+      });
+
       setName('');
       setEmail('');
-      const employeeList = await getEmployees();
-      setEmployees(employeeList);
-    } else {
-      alert('Please enter both name and email');
+      setPassword('');
+      setHourlyRate('');  // 時給フィールドをリセット
+    } catch (error) {
+      console.error('Error adding employee:', error);
     }
   };
 
+  // 時給の更新処理
+  const handleUpdateHourlyRate = async (id, newRate) => {
+    try {
+      await updateDoc(doc(db, 'employees', id), { hourlyRate: parseFloat(newRate) });
+    } catch (error) {
+      console.error('Error updating hourly rate:', error);
+    }
+  };
+
+  // 従業員の削除処理
   const handleDeleteEmployee = async (id) => {
-    await deleteEmployee(id);
-    const employeeList = await getEmployees();
-    setEmployees(employeeList);
+    try {
+      await deleteDoc(doc(db, 'employees', id));
+    } catch (error) {
+      console.error('Error deleting employee:', error);
+    }
   };
 
-  const handleSelectEmployee = async (id) => {
-    setSelectedEmployee(id);
-    const attendance = await getAttendanceByEmployee(id);
-    let total = 0;
-    for (let i = 0; i < attendance.length; i += 2) {
-      if (attendance[i + 1]) {
-        total += (attendance[i + 1].timestamp.seconds - attendance[i].timestamp.seconds) / 3600;
-      }
+  // ログアウト処理
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigate('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
     }
-    setTotalHours(total);
   };
 
   return (
-    <div>
-      <h1>Admin Dashboard</h1>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name"
-      />
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Email"
-      />
-      <button onClick={handleAddEmployee}>Add Employee</button>
-      <ul>
-        {employees.map((employee) => (
-          <li key={employee.id}>
-            {employee.name} - {employee.email}
-            <button onClick={() => handleDeleteEmployee(employee.id)}>Delete</button>
-            <button onClick={() => handleSelectEmployee(employee.id)}>View Hours</button>
-          </li>
+    <Box sx={{ padding: 4 }}>
+      <Typography variant="h4" component="h2" gutterBottom>
+        管理者画面
+      </Typography>
+      <Button
+        variant="contained"
+        color="primary"
+        onClick={handleLogout}
+        endIcon={<LogoutIcon />}
+        sx={{ marginBottom: 4 }}
+      >
+        ログアウト
+      </Button>
+
+      {/* 従業員追加フォーム */}
+      <Typography variant="h5" gutterBottom>
+        従業員を追加
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 2, marginBottom: 4 }}>
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <TextField
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <TextField
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <FormControl>
+          <InputLabel>役職</InputLabel>
+          <Select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            required
+          >
+            <MenuItem value="employee">従業員</MenuItem>
+            <MenuItem value="admin">管理者</MenuItem>
+          </Select>
+        </FormControl>
+        <TextField
+          label="Hourly Rate"
+          type="number"
+          value={hourlyRate}
+          onChange={(e) => setHourlyRate(e.target.value)}
+          required
+        />
+        <Button variant="contained" onClick={handleAddEmployee}>
+          追加
+        </Button>
+      </Box>
+
+      {/* 従業員リスト */}
+      <Typography variant="h5" gutterBottom>
+        従業員リスト
+      </Typography>
+      <List>
+        {employees.map(emp => (
+          <ListItem key={emp.id} sx={{ display: 'flex', gap: 2 }}>
+            <Typography>{emp.name} ({emp.email}) 時給: </Typography>
+            <TextField
+              type="number"
+              value={emp.hourlyRate || ''}
+              onChange={(e) => handleUpdateHourlyRate(emp.id, e.target.value)}
+              placeholder="Hourly Rate"
+            />円
+            <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteEmployee(emp.id)}>
+              <DeleteIcon />
+            </IconButton>
+          </ListItem>
         ))}
-      </ul>
-      {selectedEmployee && (
-        <div>
-          <h2>Total Hours for Selected Employee: {totalHours}</h2>
-        </div>
-      )}
-    </div>
+      </List>
+
+      {/* 労働時間と給料 */}
+      <Typography variant="h5" gutterBottom>
+        従業員の労働時間と給料
+      </Typography>
+      <List>
+        {employees.map(emp => (
+          <ListItem key={emp.id}>
+            <Typography>
+              {emp.name}: {totalHours[emp.id] ? (totalHours[emp.id] / 3600000).toFixed(2) : 0} 時間, 
+              給料: {totalSalaries[emp.id] ? totalSalaries[emp.id].toFixed(2) : 0} 円
+            </Typography>
+          </ListItem>
+        ))}
+      </List>
+    </Box>
   );
 };
 
 export default AdminDashboard;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

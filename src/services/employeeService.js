@@ -1,10 +1,8 @@
-// src/services/employeeService.js
+import { db } from '../firebase'; // インポートパスが正しいことを確認
 import { collection, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
 
 export const addEmployee = async (employee) => {
-  const docRef = await addDoc(collection(db, 'employees'), employee);
-  return docRef.id;
+  await addDoc(collection(db, 'employees'), employee);
 };
 
 export const deleteEmployee = async (id) => {
@@ -13,10 +11,19 @@ export const deleteEmployee = async (id) => {
 
 export const getEmployees = async () => {
   const querySnapshot = await getDocs(collection(db, 'employees'));
-  const employees = [];
-  querySnapshot.forEach((doc) => {
-    employees.push({ id: doc.id, ...doc.data() });
-  });
-  return employees;
+  return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
 

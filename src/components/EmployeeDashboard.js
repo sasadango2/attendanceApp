@@ -1,53 +1,125 @@
 import React, { useState, useEffect } from 'react';
-import { clockIn, clockOut, getAttendanceByEmployee } from '../services/attendanceService';
-import { getEmployees } from '../services/employeeService';
+import { auth, db, addDoc, collection, serverTimestamp } from '../firebase';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { useNavigate } from 'react-router-dom';
+import { doc, getDoc } from 'firebase/firestore';
+
+// MUI components
+import { Box, Button, Typography, Card, CardContent, CircularProgress } from '@mui/material';
 
 const EmployeeDashboard = () => {
-  const [employees, setEmployees] = useState([]);
-  const [selectedEmployee, setSelectedEmployee] = useState('');
-  const [status, setStatus] = useState('');
+  const [user] = useAuthState(auth);
+  const [employeeName, setEmployeeName] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchEmployees = async () => {
-      const employeeList = await getEmployees();
-      setEmployees(employeeList);
+    const fetchEmployeeName = async () => {
+      if (user) {
+        try {
+          const userDoc = doc(db, 'employees', user.uid);
+          const docSnap = await getDoc(userDoc);
+          if (docSnap.exists()) {
+            setEmployeeName(docSnap.data().name);
+          }
+        } catch (error) {
+          console.error('Error fetching employee name:', error);
+        }
+      }
     };
-    fetchEmployees();
-  }, []);
+
+    fetchEmployeeName();
+  }, [user]);
 
   const handleClockIn = async () => {
+    if (!user) return;
+    setLoading(true);
+
     try {
-      await clockIn(selectedEmployee);
-      setStatus('clocked in');
+      await addDoc(collection(db, 'attendance'), {
+        uid: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'clockIn'
+      });
+      setMessage('今日も1日頑張ろう！');
+      setTimeout(() => {
+        setMessage('');
+        setLoading(false);
+        navigate('/login');
+      }, 2000);
     } catch (error) {
-      alert(error.message);
+      console.error('Error clocking in:', error);
+      setLoading(false);
     }
   };
 
   const handleClockOut = async () => {
+    if (!user) return;
+    setLoading(true);
+
     try {
-      await clockOut(selectedEmployee);
-      setStatus('clocked out');
+      await addDoc(collection(db, 'attendance'), {
+        uid: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'clockOut'
+      });
+      setMessage('お疲れい！');
+      setTimeout(() => {
+        setMessage('');
+        setLoading(false);
+        navigate('/login');
+      }, 2000);
     } catch (error) {
-      alert(error.message);
+      console.error('Error clocking out:', error);
+      setLoading(false);
     }
   };
 
   return (
-    <div>
-      <h1>Employee Dashboard</h1>
-      <select onChange={(e) => setSelectedEmployee(e.target.value)} value={selectedEmployee}>
-        <option value="">Select Employee</option>
-        {employees.map((employee) => (
-          <option key={employee.id} value={employee.id}>
-            {employee.name}
-          </option>
-        ))}
-      </select>
-      <button onClick={handleClockIn} disabled={!selectedEmployee || status === 'clocked in'}>Clock In</button>
-      <button onClick={handleClockOut} disabled={!selectedEmployee || status === 'clocked out'}>Clock Out</button>
-    </div>
+    <Box sx={{ padding: 4, textAlign: 'center' }}>
+      <Card sx={{ maxWidth: 400, margin: '0 auto', padding: 3 }}>
+        <CardContent>
+          <Typography variant="h4" component="h2" gutterBottom>
+            従業員画面
+          </Typography>
+          <Typography variant="h6" component="h3" gutterBottom>
+            おはようございます、{employeeName}
+          </Typography>
+
+          {/* 出勤ボタン */}
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleClockIn}
+            disabled={loading}
+            sx={{ marginBottom: 2, width: '100%' }}
+          >
+            {loading ? <CircularProgress size={24} /> : '出勤'}
+          </Button>
+
+          {/* 退勤ボタン */}
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={handleClockOut}
+            disabled={loading}
+            sx={{ marginBottom: 2, width: '100%' }}
+          >
+            {loading ? <CircularProgress size={24} /> : '退勤'}
+          </Button>
+
+          {/* メッセージの表示 */}
+          {message && <Typography variant="body1" sx={{ marginTop: 2 }}>{message}</Typography>}
+        </CardContent>
+      </Card>
+    </Box>
   );
 };
 
 export default EmployeeDashboard;
+
+
+
+
+
