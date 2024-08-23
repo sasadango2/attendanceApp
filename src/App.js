@@ -8,6 +8,8 @@ function App() {
   return (
     <Router>
       <Routes>
+        {/* デフォルトのルートに Login コンポーネントを設定 */}
+        <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/employee" element={<EmployeeDashboard />} />
@@ -17,6 +19,7 @@ function App() {
 }
 
 export default App;
+
 
 
 
